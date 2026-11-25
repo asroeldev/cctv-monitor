@@ -1,0 +1,20 @@
+{
+  "settings_version": "0.0.7",
+  "datasets_dir": "/Users/asrulramadhan/Herd/cctv-monitor/datasets",
+  "weights_dir": "weights",
+  "runs_dir": "runs",
+  "uuid": "9018daf3c761cb3968fbd0d17c96ad57ab96402d8ee5f455a37b9202ac998a67",
+  "sync": false,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": false,
+  "comet": false,
+  "dvc": false,
+  "mlflow": false,
+  "neptune": false,
+  "raytune": false,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

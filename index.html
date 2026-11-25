@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monitor Kepatuhan CCTV</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f3f5f8; color: #172033; font: 15px system-ui, sans-serif; }
+    header { background: #172033; color: white; padding: 22px 5%; }
+    h1 { margin: 0; font-size: 24px; }
+    main { max-width: 1400px; margin: auto; padding: 24px; }
+    .notice { padding: 12px; background: #fff3cc; border-radius: 6px; }
+    .monitor { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
+    @media (max-width: 900px) {
+      .monitor { grid-template-columns: minmax(0, 1fr); }
+    }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+    .card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 5px #0001; }
+    .card h3, .card p { margin: 12px; }
+    .people-counter { padding: 16px; margin-bottom: 16px; }
+    .people-counter strong { display: block; font-size: 32px; color: #176333; }
+    .camera-settings { margin-top: 16px; padding: 16px; }
+    .camera-settings summary { cursor: pointer; font-weight: 600; }
+    .camera-settings label { display: block; margin: 12px 0 6px; }
+    .camera-settings input, .camera-settings select { width: 100%; padding: 10px; font: inherit; }
+    .camera-settings button { margin-top: 12px; padding: 10px 16px; font: inherit; cursor: pointer; }
+    .video { display: block; width: 100%; aspect-ratio: 16/9; object-fit: fill; background: #202630; }
+    .video:not([src]) { display: none; }
+    .events { display: grid; gap: 12px; max-height: 70vh; overflow-y: auto; }
+    .events .card { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: start; }
+    .events img { width: 104px; height: 78px; object-fit: contain; background: #202630; }
+    .events h3 { font-size: 16px; }
+    .events p { font-size: 13px; }
+    .vision-results { display: grid; gap: 12px; margin-bottom: 16px; }
+    .ai-controls { padding: 16px; margin-bottom: 24px; }
+    .ai-controls h2, .ai-controls p { margin: 0 0 12px; }
+    .ai-controls button { padding: 10px 16px; font: inherit; cursor: pointer; background: #176333; color: white; border: 0; border-radius: 6px; }
+    .ai-controls button:disabled { opacity: 0.6; cursor: wait; }
+    .capture-table { overflow: auto; max-height: 60vh; margin-bottom: 24px; }
+    .capture-table table { width: 100%; min-width: 390px; border-collapse: collapse; font-size: 13px; }
+    .capture-table th, .capture-table td { padding: 8px; border-bottom: 1px solid #e5e9ef; text-align: left; vertical-align: top; }
+    .capture-table th { background: #eef2f7; position: sticky; top: 0; }
+    .capture-table img { display: block; width: 80px; height: 104px; object-fit: contain; background: #202630; }
+    .capture-table img.face { width: 64px; height: 64px; }
+    .capture-table td small { display: block; max-width: 90px; }
+    .error { color: #a12621; }
+  </style>
+</head>
+<body>
+  <header><h1>Monitor Kepatuhan CCTV</h1><div>Masker &amp; hairnet · prototipe jaringan lokal</div></header>
+  <main>
+    <p id="model" class="notice">Memuat status...</p>
+    <section class="card ai-controls" aria-labelledby="ai-heading">
+      <h2 id="ai-heading">Pemeriksaan AI masker &amp; hairnet</h2>
+      <p id="vision-status" role="status" aria-live="polite">Memuat status pemeriksaan perlengkapan...</p>
+      <p>Aktivasi mengirim potongan gambar orang dengan skor deteksi di atas 70% ke Google Gemini dan dapat dikenakan biaya. Pastikan Anda memiliki izin. Kotak, penghitung, dan riwayat orang lokal tetap memakai ambang deteksi sebelumnya.</p>
+      <button id="ai-toggle" type="button" disabled>Memuat status AI...</button>
+      <p id="ai-message" role="status" aria-live="polite"></p>
+    </section>
+    <div class="monitor">
+      <section aria-labelledby="camera-heading">
+        <h2 id="camera-heading">Kamera 1</h2>
+        <div class="card people-counter">
+          <div>Orang yang sedang terdeteksi</div>
+          <strong id="people-count" aria-live="polite">Memuat...</strong>
+          <small>Kamera 1 · bukan total pengunjung · diperbarui setiap 3 detik</small>
+        </div>
+        <div id="cameras" class="grid"></div>
+        <details class="card camera-settings">
+          <summary>Ganti IP kamera</summary>
+          <p>Akun, port, kanal, dan kualitas stream tetap sama. Tidak perlu restart aplikasi.</p>
+          <form id="camera-settings-form">
+            <label for="camera-select">Kamera yang diubah</label>
+            <select id="camera-select" disabled></select>
+            <label for="camera-address">Alamat IP baru</label>
+            <input id="camera-address" type="text" placeholder="192.168.1.100" maxlength="45" autocomplete="off" required disabled>
+            <button id="camera-save" type="submit" disabled>Simpan dan sambungkan ulang</button>
+          </form>
+          <p id="camera-settings-message" role="status" aria-live="polite">Memuat pengaturan...</p>
+        </details>
+      </section>
+      <aside aria-labelledby="capture-heading">
+        <h2 id="capture-heading">Tangkapan orang · Kamera 1</h2>
+        <p>6 tangkapan terbaru, paling baru di atas. Semua tangkapan disimpan meskipun orang keluar dari kamera. Diambil dari kotak person setiap 3 detik atau saat jumlah berubah, bukan daftar orang unik.</p>
+        <p id="capture-summary" role="status" aria-live="polite">Menunggu tangkapan...</p>
+        <div class="card capture-table">
+          <table aria-label="Tangkapan orang dan wajah dari deteksi lokal">
+            <thead><tr><th scope="col">#</th><th scope="col">Waktu</th><th scope="col">Orang</th><th scope="col">Wajah</th><th scope="col">Deteksi orang</th></tr></thead>
+            <tbody id="person-captures"></tbody>
+          </table>
+        </div>
+        <p>Wajah dicari dengan detektor lokal, bukan pengenalan identitas. Wajah tertutup, kecil, miring, atau kabur mungkin tidak terdeteksi; potongan wajah perlu ditinjau.</p>
+        <h3 id="event-heading">Riwayat orang tanpa masker · Gemini</h3>
+        <p id="mask-summary" role="status" aria-live="polite">Memuat riwayat...</p>
+        <div class="card capture-table">
+          <table aria-label="Enam indikasi tanpa masker terbaru">
+            <thead><tr><th scope="col">#</th><th scope="col">Waktu</th><th scope="col">Orang</th><th scope="col">Wajah</th><th scope="col">Deteksi orang</th></tr></thead>
+            <tbody id="mask-captures"></tbody>
+          </table>
+        </div>
+        <p>Hasil pemeriksaan diperbarui otomatis setiap 3 detik; analisis mengikuti jeda dan waktu respons Gemini.</p>
+        <p>Hasil AI perlu diperiksa petugas. Nama orang tidak dikenali.</p>
+        <div id="vision-results" class="vision-results"></div>
+        <details>
+          <summary>Riwayat ringkas kamera sebelumnya</summary>
+          <div id="events" class="events"></div>
+        </details>
+      </aside>
+    </div>
+    <p id="error" class="error" role="alert"></p>
+  </main>
+  <script>
+    const cameraGrid = document.getElementById('cameras');
+    const eventGrid = document.getElementById('events');
+    const model = document.getElementById('model');
+    const error = document.getElementById('error');
+    const peopleCount = document.getElementById('people-count');
+    const visionStatus = document.getElementById('vision-status');
+    const visionResults = document.getElementById('vision-results');
+    const captureRows = document.getElementById('person-captures');
+    const captureSummary = document.getElementById('capture-summary');
+    const maskRows = document.getElementById('mask-captures');
+    const maskSummary = document.getElementById('mask-summary');
+    const aiToggle = document.getElementById('ai-toggle');
+    const aiMessage = document.getElementById('ai-message');
+    const cameraSelect = document.getElementById('camera-select');
+    const cameraAddress = document.getElementById('camera-address');
+    const cameraSave = document.getElementById('camera-save');
+    const settingsMessage = document.getElementById('camera-settings-message');
+    let cameraSettings = [];
+    const labels = {no_mask: 'Tidak memakai masker', no_hairnet: 'Tidak memakai hairnet'};
+    let lastEvents = null;
+    let lastVision = null;
+    let lastCaptures = null;
+    let lastMaskCaptures = null;
+    let aiEnabled = null;
+    let aiStopping = false;
+    let aiBusy = false;
+
+    function renderCaptureHistory(history, rows, summary, previous, label, failure = null) {
+      const serialized = JSON.stringify([history, failure]);
+      if (serialized === previous) return previous;
+      rows.replaceChildren();
+      const people = history.people.slice(0, 6);
+      summary.className = failure ? 'error' : '';
+      summary.textContent = `${people.length} ${label} terbaru dari ${history.total} tersimpan`
+        + (failure ? ` · ${failure}` : '');
+      if (!people.length) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 5;
+        cell.textContent = `Belum ada ${label} tersimpan.`;
+        row.append(cell);
+        rows.append(row);
+      } else {
+        for (const person of people) {
+          const row = document.createElement('tr');
+          const id = document.createElement('td');
+          id.textContent = `#${person.id}`;
+          const time = document.createElement('td');
+          time.textContent = new Date(person.created_at).toLocaleString('id-ID');
+          const photo = document.createElement('td');
+          const img = document.createElement('img');
+          img.src = person.image;
+          img.alt = `Potongan orang #${person.id} dari kotak person`;
+          photo.append(img);
+          const face = document.createElement('td');
+          if (person.face || person.head) {
+            const img = document.createElement('img');
+            img.className = 'face';
+            img.src = person.face || person.head;
+            img.alt = person.face ? `Potongan wajah terdeteksi dalam gambar orang #${person.id}`
+              : `Area kepala orang #${person.id}, bukan wajah terkonfirmasi`;
+            face.append(img);
+          }
+          if (!person.face) {
+            const label = document.createElement('small');
+            label.textContent = person.face_status === 'multiple'
+              ? 'Area kepala: beberapa wajah; perlu ditinjau' : 'Area kepala: wajah belum terdeteksi';
+            face.append(label);
+          }
+          const score = document.createElement('td');
+          score.textContent = `${(person.score * 100).toFixed(0)}%`;
+          row.append(id, time, photo, face, score);
+          rows.append(row);
+        }
+      }
+      return serialized;
+    }
+
+    function renderAiToggle() {
+      aiToggle.disabled = aiBusy || aiEnabled === null || aiStopping;
+      aiToggle.textContent = aiBusy ? 'Memproses...'
+        : aiStopping ? 'Menunggu AI berhenti...'
+        : aiEnabled === null ? 'Status AI tidak tersedia'
+        : aiEnabled ? 'Nonaktifkan AI' : 'Aktifkan AI';
+    }
+
+    function updateAiToggle(vision) {
+      aiEnabled = typeof vision?.enabled === 'boolean' ? vision.enabled : null;
+      aiStopping = Boolean(vision?.stopping);
+      renderAiToggle();
+    }
+
+    aiToggle.addEventListener('click', async () => {
+      if (aiBusy || aiEnabled === null || aiStopping) return;
+      const enabled = !aiEnabled;
+      if (enabled && !window.confirm('Aktifkan Gemini? Potongan gambar orang pada CCTV akan dikirim ke Google dan dapat dikenakan biaya. Pastikan Anda memiliki izin untuk pemrosesan ini.')) return;
+      aiBusy = true;
+      renderAiToggle();
+      aiMessage.className = '';
+      aiMessage.textContent = enabled ? 'Mengaktifkan AI...' : 'Menonaktifkan AI...';
+      try {
+        const response = await fetch('/api/vision', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({enabled, consent: enabled})
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(typeof result.detail === 'string' ? result.detail : 'Gagal mengubah status AI');
+        }
+        updateAiToggle(result);
+        aiMessage.textContent = result.enabled
+          ? 'AI aktif tanpa restart. Hasil muncul setelah orang terdeteksi dan pemeriksaan Gemini selesai.'
+          : 'AI dinonaktifkan. Permintaan yang sudah dikirim mungkin masih ditagih; deteksi orang lokal tetap berjalan.';
+      } catch (e) {
+        aiMessage.className = 'error';
+        aiMessage.textContent = e.message;
+      } finally {
+        aiBusy = false;
+        await refresh();
+      }
+    });
+
+    function selectCameraSettings() {
+      const camera = cameraSettings.find(camera => camera.id === Number(cameraSelect.value));
+      cameraAddress.value = camera?.address || '';
+      cameraAddress.disabled = !camera?.configured;
+      cameraSave.disabled = !camera?.configured;
+      settingsMessage.className = '';
+      settingsMessage.textContent = camera?.configured
+        ? '' : 'Kamera ini belum dikonfigurasi. Isi URL RTSP awal pada server terlebih dahulu.';
+    }
+
+    async function loadCameraSettings() {
+      try {
+        const response = await fetch('/api/camera-settings');
+        if (!response.ok) throw new Error('Gagal memuat pengaturan kamera');
+        cameraSettings = await response.json();
+        for (const camera of cameraSettings) {
+          const option = document.createElement('option');
+          option.value = camera.id;
+          option.textContent = `Kamera ${camera.id}`;
+          cameraSelect.append(option);
+        }
+        cameraSelect.disabled = false;
+        cameraSelect.value = '1';
+        selectCameraSettings();
+      } catch (e) {
+        settingsMessage.className = 'error';
+        settingsMessage.textContent = `${e.message}. Muat ulang halaman untuk mencoba lagi.`;
+      }
+    }
+
+    cameraSelect.addEventListener('change', selectCameraSettings);
+    document.getElementById('camera-settings-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      cameraSave.disabled = true;
+      cameraSelect.disabled = true;
+      settingsMessage.className = '';
+      settingsMessage.textContent = 'Menyimpan IP kamera...';
+      try {
+        const response = await fetch(`/api/cameras/${cameraSelect.value}/address`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({address: cameraAddress.value.trim()})
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(typeof result.detail === 'string' ? result.detail
+            : response.status === 422 ? 'Alamat IP tidak valid' : 'Gagal menyimpan IP kamera');
+        }
+        const camera = cameraSettings.find(camera => camera.id === result.id);
+        camera.address = result.address;
+        cameraAddress.value = result.address;
+        settingsMessage.textContent = `IP Kamera ${result.id} disimpan. Kamera sedang menyambung ulang; koneksi dapat memerlukan beberapa detik.`;
+        await refresh();
+      } catch (e) {
+        settingsMessage.className = 'error';
+        settingsMessage.textContent = e.message;
+      } finally {
+        cameraSave.disabled = false;
+        cameraSelect.disabled = false;
+      }
+    });
+
+    async function refresh() {
+      try {
+        const [statusResponse, eventsResponse, capturesResponse, masksResponse] = await Promise.all([
+          fetch('/api/status'), fetch('/api/events?camera=1&kind=no_mask'),
+          fetch('/api/captures?camera=1&kind=person'), fetch('/api/captures?camera=1&kind=no_mask')
+        ]);
+        if (![statusResponse, eventsResponse, capturesResponse, masksResponse].every(response => response.ok)) {
+          throw new Error('Server tidak merespons');
+        }
+        const status = await statusResponse.json();
+        const events = (await eventsResponse.json()).filter(event =>
+          event.camera === 1 && event.kind === 'no_mask'
+        ).slice(0, 6);
+        const captures = await capturesResponse.json();
+        const masks = await masksResponse.json();
+        const cameraCaptureError = status.cameras.find(camera => camera.id === 1)?.capture_error;
+        lastCaptures = renderCaptureHistory(captures, captureRows, captureSummary,
+                                           lastCaptures, 'tangkapan orang', cameraCaptureError);
+        lastMaskCaptures = renderCaptureHistory(masks, maskRows, maskSummary,
+                                               lastMaskCaptures, 'indikasi tanpa masker');
+        model.textContent = status.model;
+        const vision = status.vision;
+        if (!aiBusy) updateAiToggle(vision);
+        visionStatus.textContent = vision?.enabled
+          ? `${vision.model}: ${vision.status}` : vision?.status || 'Status Gemini tidak tersedia';
+        const serializedVision = JSON.stringify(vision?.last_result || null);
+        if (serializedVision !== lastVision) {
+          visionResults.replaceChildren();
+          if (vision?.last_result) {
+            const result = vision.last_result;
+            const missing = result.people.filter(person => person.mask === 'missing');
+            const unclear = result.people.filter(person => person.mask === 'unclear').length;
+            const heading = document.createElement('p');
+            heading.textContent = `${missing.length} indikasi tanpa masker · ${unclear} tidak jelas · ${result.checked}/${result.total} orang diperiksa (skor deteksi >70%) · ${new Date(result.created_at).toLocaleString('id-ID')}. Hasil gambar terakhir, bukan status orang pada frame saat ini.`;
+            visionResults.append(heading);
+          }
+          lastVision = serializedVision;
+        }
+        for (const camera of status.cameras) {
+          if (camera.id !== 1) continue;
+          peopleCount.textContent = Number.isInteger(camera.people_count)
+            ? `${camera.people_count} orang` : 'Tidak tersedia';
+          let card = document.getElementById(`camera-${camera.id}`);
+          if (!card) {
+            card = document.createElement('section');
+            card.className = 'card';
+            card.id = `camera-${camera.id}`;
+            const title = document.createElement('h3');
+            title.textContent = `Channel ${camera.id}`;
+            const img = document.createElement('img');
+            img.className = 'video';
+            img.alt = `Video channel ${camera.id}`;
+            if (camera.status !== 'Belum dikonfigurasi') img.src = `/api/cameras/${camera.id}/stream`;
+            const info = document.createElement('p');
+            card.append(title, img, info);
+            cameraGrid.append(card);
+          }
+          card.querySelector('p').textContent = camera.status;
+        }
+        const serializedEvents = JSON.stringify(events);
+        if (serializedEvents !== lastEvents) {
+          eventGrid.replaceChildren();
+          if (!events.length) eventGrid.textContent = 'Belum ada indikasi pelanggaran tercatat. Pemeriksaan memerlukan model masker/hairnet atau Gemini aktif.';
+          for (const event of events) {
+            const card = document.createElement('article');
+            card.className = 'card';
+            const img = document.createElement('img');
+            img.src = `/api/events/${event.id}/snapshot`;
+            img.alt = 'Foto kejadian';
+            const details = document.createElement('div');
+            const title = document.createElement('h3');
+            title.textContent = labels[event.kind];
+            const info = document.createElement('p');
+            const confidence = event.source === 'gemini'
+              ? `Gemini · deteksi orang ${(event.confidence * 100).toFixed(0)}% (bukan keyakinan masker/hairnet)`
+              : `YOLO · ${(event.confidence * 100).toFixed(0)}%`;
+            info.textContent = `${new Date(event.created_at).toLocaleString('id-ID')} · ${confidence}`;
+            details.append(title, info);
+            card.append(img, details);
+            eventGrid.append(card);
+          }
+          lastEvents = serializedEvents;
+        }
+        error.textContent = '';
+      } catch (e) {
+        peopleCount.textContent = 'Tidak tersedia';
+        visionStatus.textContent = 'Tidak dapat memperbarui status pemeriksaan';
+        captureSummary.className = 'error';
+        captureSummary.textContent = 'Tangkapan gagal diperbarui; gambar sebelumnya mungkin sudah lama.';
+        maskSummary.className = 'error';
+        maskSummary.textContent = 'Riwayat tanpa masker gagal diperbarui; data tersimpan tidak dihapus.';
+        lastCaptures = null;
+        lastMaskCaptures = null;
+        if (!aiBusy) updateAiToggle(null);
+        error.textContent = `Gagal memuat data: ${e.message}`;
+      }
+    }
+    async function poll() {
+      await refresh();
+      setTimeout(poll, 3000);
+    }
+    loadCameraSettings();
+    poll();
+  </script>
+</body>
+</html>
