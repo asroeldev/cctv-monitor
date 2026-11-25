@@ -42,7 +42,8 @@ class GeminiTests(unittest.TestCase):
                 worker.submit(camera, np.zeros((100, 100, 3), dtype=np.uint8),
                               [("person", score, [10, 10, 90, 90]) for score in (0.87, 0.8, 0.79, 0.78)],
                               revision=0)
-                worker.process(worker.jobs.get_nowait())
+                job = worker.jobs.get_nowait()
+                worker.process(job)
                 events = app.events(camera=1)
                 self.assertEqual(len(events), 1)
                 self.assertEqual(events[0]["kind"], "no_mask")
@@ -53,6 +54,14 @@ class GeminiTests(unittest.TestCase):
                 self.assertEqual(history["total"], 2)
                 self.assertEqual([person["score"] for person in history["people"]], [0.8, 0.87])
                 self.assertTrue(all(person["source"] == "gemini" for person in history["people"]))
+                dataset = app.dataset_samples(state="pending", offset=0)
+                self.assertEqual(dataset["pending"], 4)
+                self.assertEqual(dataset["reviewed"], 0)
+                self.assertEqual([row["suggested_mask"] for row in dataset["samples"]],
+                                 ["missing", "missing", "worn", "unclear"])
+                self.assertEqual(app.dataset_image(dataset["samples"][0]["id"]).body, job[4][0][1])
+                self.assertEqual(dataset["samples"][0]["person_score"], 0.87)
+                self.assertEqual(dataset["samples"][0]["model"], "gemini-3.5-flash-lite")
 
     def test_request_uses_server_key_and_validates_equipment_results(self):
         client = GeminiClient("test-key")
@@ -114,6 +123,7 @@ class GeminiTests(unittest.TestCase):
         camera = app.Camera(1, "", None, threading.Lock())
         camera.save_event = Mock()
         camera.save_missing_people = Mock(return_value=True)
+        camera.save_dataset_results = Mock(return_value=True)
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         people = [("person", score, [10, 10, 90, 90]) for score in (0.9, 0.8, 0.79, 0.78)]
         worker.submit(camera, frame, people, revision=0)
@@ -145,6 +155,7 @@ class GeminiTests(unittest.TestCase):
         worker = GeminiWorker(client, threading.Event())
         camera = app.Camera(1, "", None, threading.Lock())
         frame = np.zeros((100, 100, 3), np.uint8)
+        camera.save_dataset_results = Mock(return_value=True)
         detections = [("person", score, [10, 10, 90, 90]) for score in (0.69, 0.7, 0.7001, 0.9)]
         detections.append(("car", 0.99, [10, 10, 90, 90]))
         worker.submit(camera, frame, detections, revision=0)

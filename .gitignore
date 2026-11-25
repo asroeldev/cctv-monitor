@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 data/
+dataset-gemini-reviewed*.zip
 models/
 tls-key.pem
 tls-cert.pem

@@ -1,12 +1,17 @@
 import asyncio
 import base64
 import binascii
+import csv
 import hmac
+import io
+import itertools
 import logging
 import os
 import sqlite3
 import threading
 import time
+import tempfile
+import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +69,14 @@ def init_db():
         )""")
         db.execute("""CREATE INDEX IF NOT EXISTS captures_camera_kind_time
             ON captures (camera, kind, created_at DESC, id DESC)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS dataset_samples (
+            id INTEGER PRIMARY KEY, camera INTEGER NOT NULL, captured_at TEXT NOT NULL,
+            model TEXT NOT NULL, person_score REAL NOT NULL, image BLOB NOT NULL,
+            suggested_mask TEXT NOT NULL, suggested_hairnet TEXT NOT NULL,
+            reviewed_mask TEXT, reviewed_hairnet TEXT, reviewed_at TEXT
+        )""")
+        db.execute("""CREATE INDEX IF NOT EXISTS dataset_samples_reviewed
+            ON dataset_samples (reviewed_at, id)""")
 
 
 class Camera:
@@ -280,6 +293,25 @@ class Camera:
         people = self.prepare_captures(frame, detections)
         return self.save_captures(people, captured_at.isoformat(), revision,
                                   kind="no_mask", source="gemini", stop=stop)
+
+    def save_dataset_results(self, captured_at, revision, model, images, subjects, results, stop):
+        image_map = dict(images)
+        rows = [
+            (self.number, captured_at.isoformat(), model, subjects[result["id"]][0],
+             image_map[result["id"]], result["mask"], result["hairnet"])
+            for result in results
+        ]
+        with self.event_lock, self.lock:
+            if self.revision != revision or stop.is_set():
+                return False
+            with sqlite3.connect(DATABASE) as db:
+                db.executemany("""INSERT INTO dataset_samples
+                    (camera, captured_at, model, person_score, image, suggested_mask, suggested_hairnet)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""", rows)
+                if stop.is_set():
+                    db.rollback()
+                    return False
+        return True
 
     def save_event(self, kind, score, frame, source="yolo", captured_at=None, revision=None):
         with self.event_lock:
@@ -592,6 +624,98 @@ def capture_image(capture_id: int, part: Literal["image", "portrait"]):
     if row is None:
         raise HTTPException(404, "Tangkapan tidak ditemukan")
     return Response(content=row[0 if part == "image" else 1], media_type="image/jpeg")
+
+
+class DatasetReview(BaseModel):
+    mask: Literal["worn", "missing", "unclear"]
+    hairnet: Literal["worn", "missing", "unclear"]
+
+
+@app.get("/api/dataset")
+def dataset_samples(state: Literal["pending", "reviewed"] = "pending",
+                    offset: int = Query(default=0, ge=0)):
+    with sqlite3.connect(DATABASE) as db:
+        db.row_factory = sqlite3.Row
+        db.execute("BEGIN")
+        counts = db.execute("""SELECT COUNT(*) AS total,
+            COUNT(reviewed_at) AS reviewed FROM dataset_samples""").fetchone()
+        predicate = "reviewed_at IS NULL" if state == "pending" else "reviewed_at IS NOT NULL"
+        rows = db.execute(f"""SELECT id, camera, captured_at, model, person_score,
+            suggested_mask, suggested_hairnet, reviewed_mask, reviewed_hairnet, reviewed_at
+            FROM dataset_samples WHERE {predicate} ORDER BY id ASC LIMIT 12 OFFSET ?""",
+            (offset,)).fetchall()
+    return {"pending": counts["total"] - counts["reviewed"], "reviewed": counts["reviewed"],
+            "samples": [dict(row) for row in rows], "offset": offset}
+
+
+@app.get("/api/dataset/{sample_id}/image")
+def dataset_image(sample_id: int):
+    with sqlite3.connect(DATABASE) as db:
+        row = db.execute("SELECT image FROM dataset_samples WHERE id = ?", (sample_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Sampel tidak ditemukan")
+    return Response(content=row[0], media_type="image/jpeg")
+
+
+@app.patch("/api/dataset/{sample_id}")
+def review_dataset_sample(sample_id: int, review: DatasetReview):
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(DATABASE) as db:
+        result = db.execute("""UPDATE dataset_samples SET reviewed_mask = ?, reviewed_hairnet = ?,
+            reviewed_at = ? WHERE id = ?""", (review.mask, review.hairnet, reviewed_at, sample_id))
+        if result.rowcount == 0:
+            raise HTTPException(404, "Sampel tidak ditemukan")
+    return {"id": sample_id, "mask": review.mask, "hairnet": review.hairnet,
+            "reviewed_at": reviewed_at}
+
+
+@app.get("/api/dataset-export")
+def export_dataset():
+    archive = tempfile.TemporaryFile()
+    ready = False
+    try:
+        with sqlite3.connect(DATABASE) as db:
+            db.row_factory = sqlite3.Row
+            db.execute("BEGIN")
+            rows = db.execute("""SELECT id, camera, captured_at, model, person_score,
+                suggested_mask, suggested_hairnet, reviewed_mask, reviewed_hairnet, reviewed_at
+                FROM dataset_samples WHERE reviewed_at IS NOT NULL ORDER BY id""")
+            first = rows.fetchone()
+            if first is None:
+                raise HTTPException(409, "Belum ada sampel yang ditinjau untuk diekspor")
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+                with output.open("labels.csv", "w") as raw:
+                    with io.TextIOWrapper(raw, encoding="utf-8", newline="") as text:
+                        writer = csv.writer(text)
+                        writer.writerow(["image", "camera", "captured_at", "model", "person_score",
+                                         "suggested_mask", "suggested_hairnet",
+                                         "reviewed_mask", "reviewed_hairnet", "reviewed_at"])
+                        for row in itertools.chain((first,), rows):
+                            writer.writerow([f"images/{row['id']}.jpg", row["camera"], row["captured_at"],
+                                             row["model"], row["person_score"], row["suggested_mask"],
+                                             row["suggested_hairnet"], row["reviewed_mask"],
+                                             row["reviewed_hairnet"], row["reviewed_at"]])
+                for row in db.execute("""SELECT id, image FROM dataset_samples
+                    WHERE reviewed_at IS NOT NULL ORDER BY id"""):
+                    output.writestr(f"images/{row['id']}.jpg", row["image"])
+        archive.seek(0)
+        ready = True
+    finally:
+        if not ready:
+            archive.close()
+
+    def chunks():
+        try:
+            while True:
+                chunk = archive.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            archive.close()
+
+    return StreamingResponse(chunks(), media_type="application/zip",
+                             headers={"Content-Disposition": 'attachment; filename="dataset-gemini-reviewed.zip"'})
 
 
 @app.get("/api/events/{event_id}/snapshot")

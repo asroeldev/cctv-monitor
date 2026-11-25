@@ -1,9 +1,13 @@
 import base64
+import asyncio
+import csv
+import io
 import os
 import sqlite3
 import tempfile
 import threading
 import unittest
+import zipfile
 from pathlib import Path
 from threading import Thread
 from unittest.mock import AsyncMock, Mock, patch
@@ -176,6 +180,97 @@ class CaptureHistoryTests(unittest.TestCase):
         stop.set()
         self.assertFalse(self.camera.save_captures([self.person], "timestamp", 0, stop=stop))
         self.assertEqual(app.capture_history(camera=1)["total"], 0)
+
+
+class DatasetTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
+        self.addCleanup(folder.cleanup)
+        database = patch.object(app, "DATABASE", Path(folder.name) / "events.sqlite3")
+        database.start()
+        self.addCleanup(database.stop)
+        app.init_db()
+        self.camera = app.Camera(1, "configured", None, threading.Lock())
+        self.stop = threading.Event()
+        self.time = app.datetime(2026, 11, 25, tzinfo=app.timezone.utc)
+        self.images = [(1, b"synthetic-image-1"), (2, b"synthetic-image-2"), (3, b"synthetic-image-3")]
+        self.subjects = {i: (score, (0, 0, 10, 10)) for i, score in enumerate((0.9, 0.8, 0.71), 1)}
+        self.results = [
+            {"id": 1, "mask": "worn", "hairnet": "missing"},
+            {"id": 2, "mask": "missing", "hairnet": "unclear"},
+            {"id": 3, "mask": "unclear", "hairnet": "worn"},
+        ]
+
+    def save(self):
+        return self.camera.save_dataset_results(self.time, 0, "gemini-test",
+                                                self.images, self.subjects, self.results, self.stop)
+
+    def test_saves_all_suggestions_and_rejects_stale_or_cancelled_jobs(self):
+        self.assertTrue(self.save())
+        self.stop.set()
+        self.assertFalse(self.save())
+        self.stop.clear()
+        self.camera.change_url("new")
+        self.assertFalse(self.save())
+        app.init_db()
+        result = app.dataset_samples(state="pending", offset=0)
+        self.assertEqual((result["pending"], result["reviewed"]), (3, 0))
+        self.assertEqual([row["suggested_mask"] for row in result["samples"]],
+                         ["worn", "missing", "unclear"])
+        self.assertEqual(app.dataset_image(2).body, b"synthetic-image-2")
+        with self.assertRaises(app.HTTPException) as error:
+            app.dataset_image(99)
+        self.assertEqual(error.exception.status_code, 404)
+
+    def test_review_and_correction_preserve_original_suggestion_and_require_valid_labels(self):
+        self.save()
+        app.review_dataset_sample(1, app.DatasetReview(mask="missing", hairnet="unclear"))
+        app.review_dataset_sample(1, app.DatasetReview(mask="worn", hairnet="worn"))
+        result = app.dataset_samples(state="reviewed", offset=0)
+        self.assertEqual((result["pending"], result["reviewed"]), (2, 1))
+        sample = result["samples"][0]
+        self.assertEqual((sample["suggested_mask"], sample["suggested_hairnet"]), ("worn", "missing"))
+        self.assertEqual((sample["reviewed_mask"], sample["reviewed_hairnet"]), ("worn", "worn"))
+        with self.assertRaises(ValidationError):
+            app.DatasetReview(mask="yes", hairnet="worn")
+        with self.assertRaises(ValidationError):
+            app.DatasetReview(mask="worn")
+        with self.assertRaises(app.HTTPException) as error:
+            app.review_dataset_sample(99, app.DatasetReview(mask="worn", hairnet="worn"))
+        self.assertEqual(error.exception.status_code, 404)
+
+    def test_reviewed_export_is_valid_zip_with_labels_and_only_reviewed_images(self):
+        self.save()
+        with self.assertRaises(app.HTTPException) as error:
+            app.export_dataset()
+        self.assertEqual(error.exception.status_code, 409)
+        app.review_dataset_sample(2, app.DatasetReview(mask="worn", hairnet="unclear"))
+        response = app.export_dataset()
+        async def collect():
+            return b"".join([chunk async for chunk in response.body_iterator])
+        content = asyncio.run(collect())
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            self.assertEqual(set(archive.namelist()), {"labels.csv", "images/2.jpg"})
+            self.assertEqual(archive.read("images/2.jpg"), b"synthetic-image-2")
+            rows = list(csv.DictReader(io.StringIO(archive.read("labels.csv").decode("utf-8"))))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["suggested_mask"], "missing")
+        self.assertEqual(rows[0]["reviewed_mask"], "worn")
+        self.assertEqual(rows[0]["reviewed_hairnet"], "unclear")
+        self.assertEqual(rows[0]["model"], "gemini-test")
+        self.assertEqual(rows[0]["camera"], "1")
+        self.assertEqual(rows[0]["captured_at"], self.time.isoformat())
+        self.assertTrue(rows[0]["reviewed_at"])
+
+    def test_dataset_pagination_does_not_drop_samples(self):
+        for _ in range(5):
+            self.save()
+        first = app.dataset_samples(state="pending", offset=0)
+        second = app.dataset_samples(state="pending", offset=12)
+        self.assertEqual(first["pending"], 15)
+        self.assertEqual(len(first["samples"]), 12)
+        self.assertEqual(len(second["samples"]), 3)
+        self.assertEqual([row["id"] for row in first["samples"] + second["samples"]], list(range(1, 16)))
 
 
 class ModelModeTests(unittest.IsolatedAsyncioTestCase):

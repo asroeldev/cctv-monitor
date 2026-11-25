@@ -5,104 +5,207 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Monitor Kepatuhan CCTV</title>
   <style>
+    :root { color-scheme: light; --ink: #172b3b; --muted: #647888; --line: #e6edf0; --green: #0b806d; --surface: #fff; }
     * { box-sizing: border-box; }
-    body { margin: 0; background: #f3f5f8; color: #172033; font: 15px system-ui, sans-serif; }
-    header { background: #172033; color: white; padding: 22px 5%; }
-    h1 { margin: 0; font-size: 24px; }
-    main { max-width: 1400px; margin: auto; padding: 24px; }
-    .notice { padding: 12px; background: #fff3cc; border-radius: 6px; }
-    .monitor { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
-    @media (max-width: 900px) {
-      .monitor { grid-template-columns: minmax(0, 1fr); }
-    }
-    .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
-    .card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 5px #0001; }
-    .card h3, .card p { margin: 12px; }
-    .people-counter { padding: 16px; margin-bottom: 16px; }
-    .people-counter strong { display: block; font-size: 32px; color: #176333; }
-    .camera-settings { margin-top: 16px; padding: 16px; }
-    .camera-settings summary { cursor: pointer; font-weight: 600; }
-    .camera-settings label { display: block; margin: 12px 0 6px; }
-    .camera-settings input, .camera-settings select { width: 100%; padding: 10px; font: inherit; }
-    .camera-settings button { margin-top: 12px; padding: 10px 16px; font: inherit; cursor: pointer; }
-    .video { display: block; width: 100%; aspect-ratio: 16/9; object-fit: fill; background: #202630; }
+    body { margin: 0; background: #f2f6f7; color: var(--ink); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+    button, input, select { font: inherit; }
+    button, summary { cursor: pointer; }
+    button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #63cbb8; outline-offset: 3px; }
+    .topbar { background: #102b38; color: #fff; border-bottom: 1px solid #254452; }
+    .topbar-inner { max-width: 2240px; margin: auto; padding: 16px clamp(20px, 3vw, 56px); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .brand-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; color: #b6f0df; background: #205849; flex: none; }
+    .brand-mark svg { width: 23px; height: 23px; }
+    .brand-name { font-size: 16px; font-weight: 750; letter-spacing: -.02em; }
+    .brand-subtitle { color: #a7c0ca; font-size: 12px; }
+    .topbar-label { color: #b5c9d0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+    main { max-width: 2240px; margin: auto; padding: 30px clamp(20px, 3vw, 56px) 48px; }
+    .page-heading { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 24px; }
+    .eyebrow { color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { margin-top: 5px; font-size: clamp(26px, 2vw, 34px); letter-spacing: -.04em; line-height: 1.15; }
+    .page-heading p { margin-top: 7px; color: var(--muted); }
+    .refresh-note { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .monitor { display: grid; grid-template-columns: minmax(0, 1.32fr) minmax(460px, 1fr); gap: 22px; align-items: start; }
+    .primary-column, .activity-column { min-width: 0; display: grid; gap: 18px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 26px #18394a08; }
+    .section-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 19px 21px; }
+    .section-heading h2, .section-heading h3 { font-size: 16px; letter-spacing: -.02em; }
+    .section-heading p { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .tag { flex: none; color: #516d79; background: #eff5f5; border-radius: 99px; padding: 4px 9px; font-size: 11px; font-weight: 700; }
+    .tag.warning { color: #a45b19; background: #fff3e4; }
+    .camera-panel { overflow: hidden; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr); }
+    .camera-feed { overflow: hidden; background: #10232c; color: #fff; }
+    .camera-feed h3 { margin: 0; padding: 12px 18px; font-size: 13px; color: #c9d9dc; font-weight: 600; }
+    .camera-feed p { margin: 0; padding: 11px 18px; font-size: 12px; color: #b6c8cc; }
+    .camera-feed p.connected { color: #8de3c4; }
+    .video { display: block; width: 100%; aspect-ratio: 16/9; object-fit: fill; background: #172d37; }
     .video:not([src]) { display: none; }
-    .events { display: grid; gap: 12px; max-height: 70vh; overflow-y: auto; }
-    .events .card { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: start; }
-    .events img { width: 104px; height: 78px; object-fit: contain; background: #202630; }
-    .events h3 { font-size: 16px; }
-    .events p { font-size: 13px; }
-    .vision-results { display: grid; gap: 12px; margin-bottom: 16px; }
-    .ai-controls { padding: 16px; margin-bottom: 24px; }
-    .ai-controls h2, .ai-controls p { margin: 0 0 12px; }
-    .ai-controls button { padding: 10px 16px; font: inherit; cursor: pointer; background: #176333; color: white; border: 0; border-radius: 6px; }
-    .ai-controls button:disabled { opacity: 0.6; cursor: wait; }
-    .capture-table { overflow: auto; max-height: 60vh; margin-bottom: 24px; }
-    .capture-table table { width: 100%; min-width: 390px; border-collapse: collapse; font-size: 13px; }
-    .capture-table th, .capture-table td { padding: 8px; border-bottom: 1px solid #e5e9ef; text-align: left; vertical-align: top; }
-    .capture-table th { background: #eef2f7; position: sticky; top: 0; }
-    .capture-table img { display: block; width: 80px; height: 104px; object-fit: contain; background: #202630; }
-    .capture-table img.face { width: 64px; height: 64px; }
-    .capture-table td small { display: block; max-width: 90px; }
-    .error { color: #a12621; }
+    .camera-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 21px; }
+    .people-counter { display: flex; align-items: center; gap: 12px; }
+    .counter-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; color: var(--green); background: #e6f5f0; font-size: 20px; }
+    .people-counter strong { display: block; font-size: 21px; line-height: 1.15; letter-spacing: -.03em; }
+    .people-counter small, .model-status { color: var(--muted); font-size: 12px; }
+    .model-status { max-width: 420px; }
+    .ai-controls { padding: 20px 21px; }
+    .ai-top { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 12px; }
+    .ai-top h2 { font-size: 16px; }
+    .ai-status { color: #496574; font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+    .ai-description { color: var(--muted); font-size: 12px; margin-top: 13px; max-width: 900px; }
+    .button { border: 0; border-radius: 10px; background: #087c69; color: white; padding: 10px 16px; font-weight: 700; font-size: 13px; }
+    .button:hover:not(:disabled) { background: #086958; }
+    .button:disabled { opacity: .55; cursor: not-allowed; }
+    #ai-message:not(:empty) { font-size: 12px; margin-top: 10px; }
+    .camera-settings { padding: 17px 21px; }
+    .camera-settings summary, .legacy-history summary { font-weight: 700; font-size: 13px; }
+    .camera-settings p { margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .camera-settings label { display: block; margin: 12px 0 5px; font-size: 12px; font-weight: 700; }
+    .camera-settings input, .camera-settings select { width: 100%; padding: 10px 12px; color: var(--ink); background: white; border: 1px solid #d5e0e4; border-radius: 9px; }
+    .camera-settings button { margin-top: 14px; }
+    .history-panel { overflow: hidden; }
+    .history-panel .section-heading { padding-bottom: 12px; }
+    .history-summary { padding: 0 21px 14px; color: var(--muted); font-size: 12px; }
+    .capture-table { overflow: auto; max-height: 470px; border-top: 1px solid var(--line); }
+    .capture-table table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; }
+    .capture-table th, .capture-table td { padding: 10px 12px; border-bottom: 1px solid #eef2f3; text-align: left; vertical-align: middle; }
+    .capture-table th { position: sticky; top: 0; z-index: 1; background: #f8fafb; color: #71838e; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+    .capture-table tr:last-child td { border-bottom: 0; }
+    .capture-table td:first-child { color: var(--green); font-weight: 700; }
+    .capture-table td:nth-child(2) { min-width: 112px; color: #536b79; }
+    .capture-table img { display: block; width: 60px; height: 68px; object-fit: contain; background: #182b33; border-radius: 7px; }
+    .capture-table img.face { width: 55px; height: 55px; }
+    .capture-table td small { display: block; max-width: 100px; color: var(--muted); font-size: 10px; line-height: 1.3; margin-top: 4px; }
+    .panel-note { padding: 13px 21px 17px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+    .vision-results p { padding: 0 21px 16px; color: #586e7b; font-size: 12px; }
+    .legacy-history { padding: 17px 21px; }
+    .dataset-panel { padding: 18px 21px; }
+    .dataset-panel summary { font-size: 15px; font-weight: 750; }
+    .dataset-description { margin: 12px 0; color: var(--muted); font-size: 12px; }
+    .dataset-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 14px 0; }
+    .dataset-toolbar select, .dataset-review select { padding: 8px; border: 1px solid #d5e0e4; border-radius: 8px; color: var(--ink); background: white; }
+    .dataset-toolbar a { color: var(--green); font-size: 13px; font-weight: 700; }
+    .dataset-toolbar button { padding: 7px 10px; }
+    .dataset-list { display: grid; gap: 10px; }
+    .dataset-review { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+    .dataset-review img { width: 90px; height: 110px; object-fit: contain; background: #182b33; border-radius: 7px; }
+    .dataset-review p, .dataset-review label { font-size: 12px; }
+    .dataset-review p { color: var(--muted); margin-bottom: 8px; }
+    .dataset-review label { display: block; font-weight: 700; margin: 8px 0 4px; }
+    .dataset-review select { width: 100%; }
+    .dataset-review button { margin-top: 10px; }
+    .dataset-review .dataset-message { margin-top: 7px; }
+    .events { display: grid; gap: 10px; max-height: 50vh; overflow-y: auto; margin-top: 14px; font-size: 12px; color: var(--muted); }
+    .events .card { display: grid; grid-template-columns: 90px minmax(0, 1fr); overflow: hidden; box-shadow: none; }
+    .events img { width: 90px; height: 75px; object-fit: contain; background: #182b33; }
+    .events h3, .events p { margin: 8px 10px; }
+    .events h3 { color: var(--ink); font-size: 13px; }
+    .error { color: #b23835 !important; }
+    #error:not(:empty) { margin-top: 20px; padding: 14px 18px; background: #fff0ee; border-radius: 10px; }
+    @media (max-width: 1100px) { .monitor { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 600px) {
+      .topbar-inner { padding: 14px 18px; }
+      .topbar-label, .refresh-note { display: none; }
+      main { padding: 24px 14px 36px; }
+      .page-heading { margin-bottom: 19px; }
+      .section-heading, .camera-footer, .ai-controls, .camera-settings, .legacy-history { padding-left: 16px; padding-right: 16px; }
+      .history-summary, .panel-note, .vision-results p { padding-left: 16px; padding-right: 16px; }
+    }
   </style>
 </head>
 <body>
-  <header><h1>Monitor Kepatuhan CCTV</h1><div>Masker &amp; hairnet · prototipe jaringan lokal</div></header>
-  <main>
-    <p id="model" class="notice">Memuat status...</p>
-    <section class="card ai-controls" aria-labelledby="ai-heading">
-      <h2 id="ai-heading">Pemeriksaan AI masker &amp; hairnet</h2>
-      <p id="vision-status" role="status" aria-live="polite">Memuat status pemeriksaan perlengkapan...</p>
-      <p>Aktivasi mengirim potongan gambar orang dengan skor deteksi di atas 70% ke Google Gemini dan dapat dikenakan biaya. Pastikan Anda memiliki izin. Kotak, penghitung, dan riwayat orang lokal tetap memakai ambang deteksi sebelumnya.</p>
-      <button id="ai-toggle" type="button" disabled>Memuat status AI...</button>
-      <p id="ai-message" role="status" aria-live="polite"></p>
-    </section>
-    <div class="monitor">
-      <section aria-labelledby="camera-heading">
-        <h2 id="camera-heading">Kamera 1</h2>
-        <div class="card people-counter">
-          <div>Orang yang sedang terdeteksi</div>
-          <strong id="people-count" aria-live="polite">Memuat...</strong>
-          <small>Kamera 1 · bukan total pengunjung · diperbarui setiap 3 detik</small>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h13a2 2 0 0 1 2 2v7H5a2 2 0 0 1-2-2V7Z"/><path d="m18 10 3-2v7l-3-2M7 19h8M11 16v3"/><circle cx="10.5" cy="11.5" r="2.5"/></svg>
         </div>
-        <div id="cameras" class="grid"></div>
+        <div><div class="brand-name">CCTV Monitor</div><div class="brand-subtitle">PPE compliance monitoring</div></div>
+      </div>
+      <div class="topbar-label">Prototipe · Jaringan lokal</div>
+    </div>
+  </header>
+  <main>
+    <div class="page-heading">
+      <div><div class="eyebrow">Monitoring / Dashboard</div><h1>Monitor kepatuhan</h1><p>Pantau kamera dan hasil pemeriksaan dalam satu tampilan.</p></div>
+      <div class="refresh-note">Data diperbarui setiap 3 detik</div>
+    </div>
+    <div class="monitor">
+      <section class="primary-column" aria-labelledby="camera-heading">
+        <div class="card camera-panel">
+          <div class="section-heading">
+            <div><h2 id="camera-heading">Pantauan kamera</h2><p>Kamera 1 · video langsung</p></div>
+            <span class="tag">CHANNEL 01</span>
+          </div>
+          <div id="cameras" class="grid"></div>
+          <div class="camera-footer">
+            <div class="people-counter">
+              <span class="counter-icon" aria-hidden="true">◎</span>
+              <div><strong id="people-count" aria-live="polite">Memuat...</strong><small>Orang terdeteksi saat ini · bukan total pengunjung</small></div>
+            </div>
+            <p id="model" class="model-status">Memuat status...</p>
+          </div>
+        </div>
+        <section class="card ai-controls" aria-labelledby="ai-heading">
+          <div class="ai-top">
+            <div><h2 id="ai-heading">Pemeriksaan AI</h2><p id="vision-status" class="ai-status" role="status" aria-live="polite">Memuat status pemeriksaan perlengkapan...</p></div>
+            <button id="ai-toggle" class="button" type="button" disabled>Memuat status AI...</button>
+          </div>
+          <p class="ai-description">Aktivasi mengirim potongan gambar orang dengan skor deteksi di atas 70% ke Google Gemini dan dapat dikenakan biaya. Pastikan Anda memiliki izin. Kotak, penghitung, dan riwayat orang lokal tetap memakai ambang deteksi sebelumnya.</p>
+          <p id="ai-message" role="status" aria-live="polite"></p>
+        </section>
         <details class="card camera-settings">
-          <summary>Ganti IP kamera</summary>
+          <summary>Pengaturan kamera · Ganti IP</summary>
           <p>Akun, port, kanal, dan kualitas stream tetap sama. Tidak perlu restart aplikasi.</p>
           <form id="camera-settings-form">
             <label for="camera-select">Kamera yang diubah</label>
             <select id="camera-select" disabled></select>
             <label for="camera-address">Alamat IP baru</label>
             <input id="camera-address" type="text" placeholder="192.168.1.100" maxlength="45" autocomplete="off" required disabled>
-            <button id="camera-save" type="submit" disabled>Simpan dan sambungkan ulang</button>
+            <button id="camera-save" class="button" type="submit" disabled>Simpan dan sambungkan ulang</button>
           </form>
           <p id="camera-settings-message" role="status" aria-live="polite">Memuat pengaturan...</p>
         </details>
+        <details class="card dataset-panel" id="dataset-panel">
+          <summary>Dataset Gemini · tinjau dan ekspor</summary>
+          <p class="dataset-description">Setiap hasil pemeriksaan Gemini disimpan sebagai kandidat beserta gambar dan saran label. Pilih label masker dan hairnet setelah meninjau gambar. Hanya sampel yang sudah ditinjau masuk ekspor. Dataset ini belum menjadi model lokal.</p>
+          <p id="dataset-summary" class="dataset-description" role="status" aria-live="polite">Buka bagian ini untuk memuat sampel.</p>
+          <div class="dataset-toolbar">
+            <label for="dataset-state">Tampilkan</label>
+            <select id="dataset-state"><option value="pending">Belum ditinjau</option><option value="reviewed">Sudah ditinjau</option></select>
+            <button type="button" class="button" id="dataset-prev" disabled>Sebelumnya</button>
+            <button type="button" class="button" id="dataset-next" disabled>Berikutnya</button>
+            <a href="/api/dataset-export">Unduh sampel ditinjau (.zip)</a>
+          </div>
+          <p id="dataset-error" class="error" role="alert"></p>
+          <div id="dataset-list" class="dataset-list"></div>
+        </details>
       </section>
-      <aside aria-labelledby="capture-heading">
-        <h2 id="capture-heading">Tangkapan orang · Kamera 1</h2>
-        <p>6 tangkapan terbaru, paling baru di atas. Semua tangkapan disimpan meskipun orang keluar dari kamera. Diambil dari kotak person setiap 3 detik atau saat jumlah berubah, bukan daftar orang unik.</p>
-        <p id="capture-summary" role="status" aria-live="polite">Menunggu tangkapan...</p>
-        <div class="card capture-table">
+      <aside class="activity-column" aria-labelledby="capture-heading">
+        <section class="card history-panel" aria-labelledby="capture-heading">
+          <div class="section-heading"><div><h2 id="capture-heading">Tangkapan orang</h2><p>Kamera 1 · terbaru di atas</p></div><span class="tag">6 TERBARU</span></div>
+          <p id="capture-summary" class="history-summary" role="status" aria-live="polite">Menunggu tangkapan...</p>
+          <div class="capture-table">
           <table aria-label="Tangkapan orang dan wajah dari deteksi lokal">
             <thead><tr><th scope="col">#</th><th scope="col">Waktu</th><th scope="col">Orang</th><th scope="col">Wajah</th><th scope="col">Deteksi orang</th></tr></thead>
             <tbody id="person-captures"></tbody>
           </table>
-        </div>
-        <p>Wajah dicari dengan detektor lokal, bukan pengenalan identitas. Wajah tertutup, kecil, miring, atau kabur mungkin tidak terdeteksi; potongan wajah perlu ditinjau.</p>
-        <h3 id="event-heading">Riwayat orang tanpa masker · Gemini</h3>
-        <p id="mask-summary" role="status" aria-live="polite">Memuat riwayat...</p>
-        <div class="card capture-table">
+          </div>
+          <p class="panel-note">Sampel setiap 3 detik atau saat jumlah berubah; orang yang sama dapat muncul lebih dari sekali. Wajah dicari secara lokal, bukan pengenalan identitas. Area kepala ditampilkan jika wajah tidak terdeteksi.</p>
+        </section>
+        <section class="card history-panel" aria-labelledby="event-heading">
+          <div class="section-heading"><div><h2 id="event-heading">Indikasi tanpa masker</h2><p>Hasil pemeriksaan Gemini · perlu ditinjau</p></div><span class="tag warning">6 TERBARU</span></div>
+          <p id="mask-summary" class="history-summary" role="status" aria-live="polite">Memuat riwayat...</p>
+          <div class="capture-table">
           <table aria-label="Enam indikasi tanpa masker terbaru">
             <thead><tr><th scope="col">#</th><th scope="col">Waktu</th><th scope="col">Orang</th><th scope="col">Wajah</th><th scope="col">Deteksi orang</th></tr></thead>
             <tbody id="mask-captures"></tbody>
           </table>
-        </div>
-        <p>Hasil pemeriksaan diperbarui otomatis setiap 3 detik; analisis mengikuti jeda dan waktu respons Gemini.</p>
-        <p>Hasil AI perlu diperiksa petugas. Nama orang tidak dikenali.</p>
-        <div id="vision-results" class="vision-results"></div>
-        <details>
+          </div>
+          <p class="panel-note">Hasil AI dapat keliru dan perlu diperiksa petugas. Nama orang tidak dikenali; waktu analisis mengikuti jeda dan respons Gemini.</p>
+          <div id="vision-results" class="vision-results"></div>
+        </section>
+        <details class="card legacy-history">
           <summary>Riwayat ringkas kamera sebelumnya</summary>
           <div id="events" class="events"></div>
         </details>
@@ -128,6 +231,13 @@
     const cameraAddress = document.getElementById('camera-address');
     const cameraSave = document.getElementById('camera-save');
     const settingsMessage = document.getElementById('camera-settings-message');
+    const datasetPanel = document.getElementById('dataset-panel');
+    const datasetState = document.getElementById('dataset-state');
+    const datasetSummary = document.getElementById('dataset-summary');
+    const datasetError = document.getElementById('dataset-error');
+    const datasetList = document.getElementById('dataset-list');
+    const datasetPrev = document.getElementById('dataset-prev');
+    const datasetNext = document.getElementById('dataset-next');
     let cameraSettings = [];
     const labels = {no_mask: 'Tidak memakai masker', no_hairnet: 'Tidak memakai hairnet'};
     let lastEvents = null;
@@ -137,13 +247,114 @@
     let aiEnabled = null;
     let aiStopping = false;
     let aiBusy = false;
+    let datasetOffset = 0;
+    let datasetRequest = 0;
+    const datasetLabels = {worn: 'Dipakai', missing: 'Tidak dipakai', unclear: 'Tidak jelas'};
+
+    function datasetSelect(label, current) {
+      const wrapper = document.createElement('div');
+      const caption = document.createElement('label');
+      caption.textContent = label;
+      const select = document.createElement('select');
+      select.required = true;
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Pilih hasil setelah meninjau';
+      select.append(placeholder);
+      for (const [value, text] of Object.entries(datasetLabels)) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = text;
+        select.append(option);
+      }
+      select.value = current || '';
+      caption.append(select);
+      wrapper.append(caption);
+      return {wrapper, select};
+    }
+
+    async function loadDataset() {
+      const request = ++datasetRequest;
+      datasetError.textContent = '';
+      datasetPrev.disabled = true;
+      datasetNext.disabled = true;
+      try {
+        const response = await fetch(`/api/dataset?state=${datasetState.value}&offset=${datasetOffset}`);
+        if (!response.ok) throw new Error('Gagal memuat dataset');
+        const result = await response.json();
+        if (request !== datasetRequest) return;
+        const count = datasetState.value === 'pending' ? result.pending : result.reviewed;
+        if (datasetOffset >= count && datasetOffset > 0) {
+          datasetOffset = Math.max(0, Math.ceil(count / 12) * 12 - 12);
+          return loadDataset();
+        }
+        datasetSummary.textContent = `${result.pending} belum ditinjau · ${result.reviewed} sudah ditinjau · ${count ? datasetOffset + 1 : 0}–${Math.min(datasetOffset + result.samples.length, count)} dari ${count}`;
+        datasetPrev.disabled = datasetOffset === 0;
+        datasetNext.disabled = datasetOffset + result.samples.length >= count;
+        datasetList.replaceChildren();
+        if (!result.samples.length) {
+          const empty = document.createElement('p');
+          empty.className = 'dataset-description';
+          empty.textContent = 'Belum ada sampel pada daftar ini.';
+          datasetList.append(empty);
+        }
+        for (const sample of result.samples) {
+          const form = document.createElement('form');
+          form.className = 'dataset-review';
+          const img = document.createElement('img');
+          img.src = `/api/dataset/${sample.id}/image`;
+          img.alt = `Sampel orang #${sample.id}`;
+          const content = document.createElement('div');
+          const info = document.createElement('p');
+          info.textContent = `#${sample.id} · Kamera ${sample.camera} · ${new Date(sample.captured_at).toLocaleString('id-ID')} · deteksi orang ${(sample.person_score * 100).toFixed(0)}%`;
+          const suggestion = document.createElement('p');
+          suggestion.textContent = `Saran ${sample.model}: masker ${datasetLabels[sample.suggested_mask]}, hairnet ${datasetLabels[sample.suggested_hairnet]}. Saran belum tentu benar.`;
+          const mask = datasetSelect('Masker', sample.reviewed_mask);
+          const hairnet = datasetSelect('Hairnet', sample.reviewed_hairnet);
+          const button = document.createElement('button');
+          button.className = 'button';
+          button.type = 'submit';
+          button.textContent = sample.reviewed_at ? 'Simpan koreksi' : 'Simpan tinjauan';
+          const message = document.createElement('p');
+          message.className = 'dataset-message';
+          message.setAttribute('role', 'status');
+          form.addEventListener('submit', async event => {
+            event.preventDefault();
+            button.disabled = true;
+            message.textContent = 'Menyimpan...';
+            try {
+              const response = await fetch(`/api/dataset/${sample.id}`, {
+                method: 'PATCH', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mask: mask.select.value, hairnet: hairnet.select.value})
+              });
+              if (!response.ok) throw new Error('Tinjauan gagal disimpan');
+              await loadDataset();
+            } catch (e) {
+              message.className = 'dataset-message error';
+              message.textContent = e.message;
+              button.disabled = false;
+            }
+          });
+          content.append(info, suggestion, mask.wrapper, hairnet.wrapper, button, message);
+          form.append(img, content);
+          datasetList.append(form);
+        }
+      } catch (e) {
+        if (request === datasetRequest) datasetError.textContent = e.message;
+      }
+    }
+
+    datasetPanel.addEventListener('toggle', () => { if (datasetPanel.open) loadDataset(); });
+    datasetState.addEventListener('change', () => { datasetOffset = 0; loadDataset(); });
+    datasetPrev.addEventListener('click', () => { datasetOffset = Math.max(0, datasetOffset - 12); loadDataset(); });
+    datasetNext.addEventListener('click', () => { datasetOffset += 12; loadDataset(); });
 
     function renderCaptureHistory(history, rows, summary, previous, label, failure = null) {
       const serialized = JSON.stringify([history, failure]);
       if (serialized === previous) return previous;
       rows.replaceChildren();
       const people = history.people.slice(0, 6);
-      summary.className = failure ? 'error' : '';
+      summary.className = failure ? 'history-summary error' : 'history-summary';
       summary.textContent = `${people.length} ${label} terbaru dari ${history.total} tersimpan`
         + (failure ? ` · ${failure}` : '');
       if (!people.length) {
@@ -341,7 +552,7 @@
           let card = document.getElementById(`camera-${camera.id}`);
           if (!card) {
             card = document.createElement('section');
-            card.className = 'card';
+            card.className = 'camera-feed';
             card.id = `camera-${camera.id}`;
             const title = document.createElement('h3');
             title.textContent = `Channel ${camera.id}`;
@@ -353,7 +564,9 @@
             card.append(title, img, info);
             cameraGrid.append(card);
           }
-          card.querySelector('p').textContent = camera.status;
+          const cameraStatus = card.querySelector('p');
+          cameraStatus.textContent = camera.status;
+          cameraStatus.className = camera.status === 'Terhubung' ? 'connected' : '';
         }
         const serializedEvents = JSON.stringify(events);
         if (serializedEvents !== lastEvents) {
@@ -383,9 +596,9 @@
       } catch (e) {
         peopleCount.textContent = 'Tidak tersedia';
         visionStatus.textContent = 'Tidak dapat memperbarui status pemeriksaan';
-        captureSummary.className = 'error';
+        captureSummary.className = 'history-summary error';
         captureSummary.textContent = 'Tangkapan gagal diperbarui; gambar sebelumnya mungkin sudah lama.';
-        maskSummary.className = 'error';
+        maskSummary.className = 'history-summary error';
         maskSummary.textContent = 'Riwayat tanpa masker gagal diperbarui; data tersimpan tidak dihapus.';
         lastCaptures = null;
         lastMaskCaptures = null;

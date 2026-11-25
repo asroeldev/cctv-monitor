@@ -195,6 +195,10 @@ class GeminiWorker:
             if camera.revision != revision:
                 self.invalidate()
                 return
+        if not camera.save_dataset_results(
+            captured_at, revision, self.client.model, images, subjects, results, self.stop
+        ):
+            return
         for result in results:
             if self.stop.is_set():
                 return
