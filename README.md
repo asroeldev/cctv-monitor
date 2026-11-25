@@ -14,16 +14,68 @@ Tabel tanpa masker menyimpan setiap orang dengan hasil `mask=missing` dari frame
 
 Penghitung di atas video menampilkan jumlah kotak `person` pada inferensi terbaru Kamera 1, diperbarui di halaman setiap 3 detik. Ini jumlah orang yang sedang terdeteksi, bukan total pengunjung unik atau hitungan masuk/keluar. Angka `0` berarti inferensi tidak menemukan orang; “Tidak tersedia” berarti belum ada hasil, kamera terputus, atau model tidak menyediakan kelas `person`. Hitungan dapat keliru jika orang tertutup, terlalu kecil, atau mendapat kotak ganda. API `/api/status` menyertakan `people_count` per kamera (`null` jika tidak tersedia).
 
-## Menjalankan
+## Panduan menjalankan dan menghentikan aplikasi (macOS)
 
-Butuh Python 3.9 atau lebih baru, koneksi jaringan ke kamera/XVR dan ruang penyimpanan untuk foto. Dari folder ini:
+Panduan ini menggunakan port **8002**. Jalankan hanya **satu proses aplikasi** agar pengaturan dan koneksi kamera konsisten.
+
+### Persiapan pertama kali
+
+Jika aplikasi sudah pernah disiapkan, lewati langkah ini. Buka Terminal atau terminal VS Code, lalu masuk ke folder aplikasi. Ganti contoh path dengan lokasi folder Anda; Anda juga dapat mengetik `cd ` lalu menyeret folder aplikasi ke Terminal.
 
 ```sh
+cd /path/ke/cctv-monitor
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
 ```
+
+Jika belum ada `.env`, buat dari contoh dengan `cp .env.example .env`. **Jangan jalankan perintah ini jika `.env` sudah ada**, karena konfigurasi yang tersimpan dapat tertimpa. Isi akun aplikasi, URL kamera, dan pengaturan model sesuai bagian [Konfigurasi dan HTTPS](#konfigurasi-dan-https) di bawah. Siapkan juga sertifikat HTTPS dan kunci privat.
+
+### Menyalakan aplikasi
+
+1. Buka Terminal atau terminal VS Code dan masuk ke folder aplikasi:
+
+   ```sh
+   cd /path/ke/cctv-monitor
+   ```
+
+2. Pastikan aplikasi belum berjalan. Lihat proses yang mendengarkan pada port yang biasa digunakan:
+
+   ```sh
+   lsof -nP -iTCP:8001 -iTCP:8002 -sTCP:LISTEN
+   ```
+
+   Jika sudah ada server aplikasi yang benar pada port 8002, langsung buka browser; jangan jalankan salinan kedua. Jika server lama masih berjalan pada port lain, hentikan server lama terlebih dahulu sesuai langkah di bawah.
+
+3. Jalankan server dari folder aplikasi:
+
+   ```sh
+   .venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8002 --ssl-keyfile tls-key.pem --ssl-certfile tls-cert.pem
+   ```
+
+   Tunggu pesan `Application startup complete` dan biarkan terminal terbuka. Jika muncul kesalahan, periksa pesan di terminal; server belum siap bila startup gagal.
+
+4. Di Mac yang menjalankan server, buka **https://localhost:8002**, lalu login dengan `APP_USERNAME` dan `APP_PASSWORD` yang dikonfigurasi di `.env`. Jangan membuka `index.html` langsung sebagai `file://`, karena API dan dataset tidak akan berfungsi. Untuk perangkat lain di LAN, gunakan `https://IP-SERVER:8002` dan sertifikat yang dipercaya serta mencakup alamat tersebut, sebagaimana dijelaskan di bawah.
+
+Jika `GEMINI_ENABLED=1` tersimpan di `.env`, Gemini dapat langsung aktif saat server dimulai. Untuk menghentikan pengiriman baru tanpa mematikan video, klik **Nonaktifkan AI** di dashboard; permintaan yang sudah terkirim tidak dapat dibatalkan. Aktifkan kembali hanya setelah memahami bahwa potongan gambar dikirim ke Google dan dapat dikenai biaya. Perubahan konfigurasi `.env` secara langsung memerlukan restart.
+
+### Mematikan aplikasi
+
+- **Jika dijalankan di terminal yang masih terbuka:** pilih terminal tersebut dan tekan **Ctrl+C**. Tunggu sampai proses selesai dan prompt terminal kembali. Menutup tab browser saja tidak menghentikan server.
+- **Jika server berjalan di latar belakang atau terminal asal tidak tersedia:** jalankan `lsof -nP -iTCP:8001 -iTCP:8002 -sTCP:LISTEN`, lalu cari PID pada baris port server yang ingin dihentikan. Periksa prosesnya dengan `ps -p PID -o command=` (ganti `PID` dengan angka sebenarnya). Hanya jika yakin proses itu server aplikasi ini, jalankan `kill PID`. Ulangi `lsof` untuk memastikan port server tersebut tidak lagi mendengarkan. Jangan menghentikan proses lain yang tidak dikenali. Hentikan kedua port secara terpisah jika memang keduanya menjalankan salinan aplikasi ini.
+
+Setelah server berhenti, video dan deteksi berhenti, tetapi data yang sudah tersimpan tetap ada. Untuk menyalakan kembali, ikuti langkah **Menyalakan aplikasi**. Mematikan aplikasi tidak otomatis mengubah pengaturan Gemini yang tersimpan.
+
+### Jika terjadi masalah
+
+- **Port sudah digunakan / Address already in use:** periksa dengan perintah `lsof` di atas. Gunakan server yang sudah berjalan atau hentikan proses aplikasi yang benar sebelum menjalankan ulang; jangan menjalankan server ganda pada port lain.
+- **Gagal memuat dataset:** pastikan halaman dibuka melalui `https://localhost:8002`, bukan `file://` atau server lama. Restart server setelah memperbarui kode Python agar endpoint terbaru dimuat.
+- **Browser memperingatkan sertifikat:** sertifikat lokal yang ditandatangani sendiri belum otomatis dipercaya. Gunakan sertifikat yang dipercaya dan cocok dengan alamat yang dibuka; lihat bagian HTTPS di bawah.
+- **Video tidak tampil:** pastikan kamera dan server terhubung di jaringan yang sama, URL RTSP benar, dan periksa status kamera serta pesan di terminal.
+
+## Konfigurasi dan HTTPS
+
+Butuh Python 3.9 atau lebih baru, koneksi jaringan ke kamera/XVR dan ruang penyimpanan untuk foto.
 
 Isi `.env` dengan `APP_USERNAME` dan `APP_PASSWORD` untuk akun bersama. Gunakan kata sandi yang panjang dan acak; username tidak boleh mengandung `:`. Aplikasi tidak akan mulai jika akun belum diisi.
 
@@ -42,11 +94,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout tls-key.pem -out tls-cert.pem 
 
 Sertifikat ini ditandatangani sendiri dan tidak otomatis dipercaya browser; administrator harus memasangnya sebagai sertifikat tepercaya pada perangkat pengguna, atau menggunakan sertifikat dari CA yang dipercaya. Jaga kunci privat dan berikan akses hanya kepada administrator. Pastikan OpenSSL mendukung opsi `-addext`.
 
-```sh
-uvicorn app:app --host 0.0.0.0 --port 8000 --ssl-keyfile tls-key.pem --ssl-certfile tls-cert.pem
-```
-
-Buka `https://192.168.1.10:8000` dengan IP server yang sesuai dari perangkat dalam jaringan lokal, lalu masukkan akun bersama. Aplikasi menolak permintaan HTTP tanpa HTTPS. Batasi port 8000 dengan firewall hanya untuk jaringan pengguna yang tepercaya; jangan lakukan port forwarding ke internet. Perubahan langsung pada `.env` memerlukan restart; gunakan formulir browser di bawah untuk mengganti IP tanpa restart. Untuk menghentikan tekan Ctrl+C. Jika port 8000 sedang digunakan proses lain, pilih port kosong seperti `--port 8001` dan gunakan nomor port tersebut di alamat browser.
+Jalankan server seperti pada panduan di atas, lalu buka `https://192.168.1.10:8002` dengan IP server yang sesuai dari perangkat dalam jaringan lokal dan masukkan akun bersama. Aplikasi menolak permintaan HTTP tanpa HTTPS. Batasi port 8002 dengan firewall hanya untuk jaringan pengguna yang tepercaya; jangan lakukan port forwarding ke internet. Gunakan formulir browser di bawah untuk mengganti IP kamera tanpa restart.
 
 ### Mengganti IP kamera tanpa restart
 
